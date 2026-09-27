@@ -16,7 +16,7 @@ This project fixes that by:
 
 1. **Polling** the recently-played endpoint every ~30 minutes and saving each play before it falls out of that 50-track window.
 2. **Backfilling** years of history from Spotify's downloadable Extended Streaming History export.
-3. **Serving** ranked top tracks for any time range from a Postgres database.
+3. **Serving** ranked top tracks for any time range from a database.
 
 Because plays that fall out of the window exist only in my database, the system has to run reliably without supervision. That makes it a good vehicle for learning operations.
 
@@ -28,30 +28,30 @@ Because plays that fall out of the window exist only in my database, the system 
 flowchart LR
     spotify[(Spotify Web API)]
     export[/"Spotify data export<br/>(JSON files)"/]
-    subgraph vm["Cloud VM · Docker Compose"]
-        poller["poll<br/>every ~30 min"] --> db[(PostgreSQL)]
+    subgraph vm["Server · Docker Compose"]
+        poller["poll<br/>every ~30 min"] --> db[(Database)]
         importer["import<br/>one-off"] --> db
         api["serve<br/>API + simple page"] --> db
     end
     poller -- "GET /me/player/recently-played" --> spotify
     export --> importer
-    me["My laptop / phone"] -- "Tailscale (private network)" --> api
+    me["My laptop / phone"] -- "access method: ADR-0010" --> api
 ```
 
 | Component | Role |
 |---|---|
-| **Poller** (`poll`) | Fetches plays newer than the latest one stored, inserts them, and exits. Runs on a schedule. Safe to run any number of times. |
+| **Poller** (`poll`) | Fetches plays newer than the latest one stored and inserts them. Runs on a schedule. Safe to run any number of times. |
 | **Importer** (`import`) | One-time load of historical plays from a Spotify data export. Also idempotent. |
 | **API** (`serve`) | Read-only. Returns top tracks for a time range, plus a health check. |
-| **PostgreSQL** | The only durable state. Everything else can be rebuilt. |
+| **Database** | The only durable state. Everything else can be rebuilt. |
 
 All components ship as **one container image** with different subcommands.
 
 ### Design principles
 
-- **Idempotent ingestion.** A database unique constraint, not application logic, prevents duplicate plays. Re-running the poller or importer never changes the results.
-- **Run-once jobs with external scheduling.** The poller doesn't run its own timer, so it maps directly onto cron now and a Kubernetes CronJob later.
-- **No public attack surface.** The server makes only outbound requests to Spotify. I reach the dashboard over [Tailscale](https://tailscale.com/kb), so there is no domain, TLS certificate, or open inbound port to defend.
+- **Idempotent ingestion.** Re-running the poller or importer never changes the results. How duplicates are prevented is decided in ADR-0005.
+- **Scheduled polling.** How the poller is scheduled is decided in ADR-0004.
+- **Small attack surface.** The server makes only outbound requests to Spotify. How I reach the dashboard is decided in ADR-0010.
 - **Configuration through environment variables**, following [The Twelve-Factor App](https://12factor.net/).
 
 ---
@@ -65,12 +65,12 @@ Weekend-paced alongside a full-time course load. Each phase introduces one area 
 | 0 | Repo, tooling, Spotify app, data export requested | Sep 2026 | 🔄 In progress |
 | 1 | Poller, schema, top-tracks API, tests | Oct 2026 | ☐ |
 | 2 | Docker image + Compose stack | Oct 2026 | ☐ |
-| 3 | First deploy to a cloud VM (by hand, fully documented) | Nov 2026 | ☐ |
-| 4 | CI: lint, test, build, scan, publish to GHCR | Nov 2026 | ☐ |
+| 3 | First deploy to a server (by hand, fully documented) | Nov 2026 | ☐ |
+| 4 | CI: lint, test, build, scan, publish to a container registry | Nov 2026 | ☐ |
 | 5 | Historical backfill from Spotify export | Nov 2026 | ☐ |
-| 6 | Infrastructure as Code with Terraform | Dec 2026 | ☐ |
+| 6 | Infrastructure as Code | Dec 2026 | ☐ |
 | 7 | Continuous deployment with health-checked rollouts | Jan 2027 | ☐ |
-| 8 | Prometheus + Grafana, alerting, external heartbeat | Jan 2027 | ☐ |
+| 8 | Metrics, dashboards, alerting, external heartbeat | Jan 2027 | ☐ |
 | 9 | Offsite backups + timed restore drill | Jan 2027 | ☐ |
 | 10 | *Stretch:* Kubernetes (k3s) + GitOps with Argo CD | Spring 2027 | ☐ |
 
@@ -83,7 +83,7 @@ Weekend-paced alongside a full-time course load. Each phase introduces one area 
 - **Spotify Premium** on the account that owns the developer app. Spotify requires this for Development Mode apps as of 2026.
 - [Docker Desktop](https://docs.docker.com/desktop/) (Windows: WSL2 backend) or Docker Engine on Linux
 - [Git](https://git-scm.com/)
-- Language runtime: *TBD after [ADR-0001](docs/adr/)*
+- [Go](https://go.dev/dl/) (see [ADR-0001](docs/adr/0001-language-and-framework.md); the required version is set in `go.mod` in Phase 1)
 
 ### 1. Create a Spotify developer app
 
@@ -122,7 +122,7 @@ Fill in the values described in [Configuration](#configuration). **Never commit 
 Runs once on your own machine. It opens a browser, you approve access, and it saves a refresh token to `.env`.
 
 ```
-TBD after ADR-0001, e.g. <run command> authorize
+go run ./cmd/tracker authorize
 ```
 
 ### 5. Run the stack *(planned, Phase 2)*
@@ -148,12 +148,11 @@ All settings come from environment variables, loaded from `.env` locally. `.env.
 | `SPOTIFY_REDIRECT_URI` | Yes | `http://127.0.0.1:8888/callback` |
 | `SPOTIFY_REFRESH_TOKEN` | Yes | Written by the `authorize` step. **Secret.** |
 | `SPOTIFY_AUTHORIZED_AT` | Yes | ISO date of authorization, used to warn before the refresh token expires |
-| `DATABASE_URL` | Yes | e.g. `postgresql://tracker:<password>@db:5432/tracker`. **Contains a secret.** |
-| `POSTGRES_PASSWORD` | Yes | Database password used by the Postgres container. **Secret.** |
+| `DATABASE_URL` | Yes | Database connection string. Format depends on [ADR-0002](docs/adr/). **May contain a secret.** |
 | `POLL_INTERVAL_SECONDS` | No | Seconds between polls. Default `1800` |
-| `TIMEZONE` | No | Used for display and calendar-based ranges. Default `America/Los_Angeles` |
+| `TIMEZONE` | No | Used for display, and for time ranges if ADR-0006 chooses calendar-based ranges. Default `America/Los_Angeles` |
 
-Generate a strong database password:
+Other database variables depend on ADR-0002. If the database needs a password, generate a strong one:
 
 ```powershell
 # PowerShell
@@ -175,7 +174,7 @@ openssl rand -base64 32
 |---|---|
 | `GET /top-tracks?range=<range>&limit=<n>` | Tracks ranked by play count. `range` is one of `1d`, `1w`, `1m`, `6m`, `1y`, `all`. `limit` defaults to 10. |
 | `GET /healthz` | `200` if the app can reach the database, otherwise an error status |
-| `GET /metrics` | Prometheus metrics *(Phase 8)* |
+| `GET /metrics` | Metrics *(Phase 8, format depends on ADR-0020)* |
 
 ```powershell
 # PowerShell
@@ -193,7 +192,7 @@ curl "http://127.0.0.1:8000/top-tracks?range=1w&limit=5"
 |---|---|
 | `authorize` | One-time Spotify OAuth. Saves a refresh token. |
 | `migrate` | Applies database schema migrations |
-| `poll` | Fetches new plays once, inserts them, and exits |
+| `poll` | Fetches new plays and inserts them |
 | `import <path>` | Loads a Spotify Extended Streaming History export |
 | `serve` | Starts the API |
 
@@ -204,7 +203,7 @@ curl "http://127.0.0.1:8000/top-tracks?range=1w&limit=5"
 These come from Spotify's API rules as of September 2026 and shape the design:
 
 - **Only the last 50 plays are available** through the API, so gaps in polling longer than ~50 songs lose data until the next export backfill.
-- **A track has to play for about 30 seconds** to count, so play counts may differ slightly from what you expect.
+- **What counts as a play** is decided in ADR-0014, so play counts may differ slightly from Spotify's own numbers.
 - **Refresh tokens reportedly expire about six months after authorization.** You'll need to re-run `authorize` twice a year; monitoring warns before that happens.
 - **Development Mode allows up to 5 users**, so this is a personal tool rather than a public service.
 - **Data starts when polling starts.** Earlier history needs the export backfill.
@@ -228,15 +227,15 @@ Spotify's [February 2026 migration guide](https://developer.spotify.com/document
 
 | Area | Tool | Phase |
 |---|---|---|
-| Language / framework | TBD ([ADR-0001](docs/adr/)) | 0 |
-| Database | PostgreSQL | 1 |
+| Language / framework | Go, standard library ([ADR-0001](docs/adr/0001-language-and-framework.md)) | 0 |
+| Database | TBD (ADR-0002) | 0 |
 | Containers | Docker, Docker Compose | 2 |
-| Private access | Tailscale | 3 |
+| Dashboard access | TBD (ADR-0010) | 3 |
 | CI | GitHub Actions, Trivy, Dependabot | 4 |
-| Registry | GitHub Container Registry | 4 |
-| Infrastructure as Code | Terraform + cloud-init | 6 |
-| Monitoring | Prometheus, Grafana, healthchecks.io | 8 |
-| Orchestration *(stretch)* | k3s, Kustomize, Argo CD | 10 |
+| Registry | TBD (ADR-0013) | 4 |
+| Infrastructure as Code | TBD (ADR-0016, ADR-0018) | 6 |
+| Monitoring | TBD (ADR-0020) | 8 |
+| Orchestration *(stretch)* | k3s, Argo CD; packaging TBD (ADR-0023) | 10 |
 
 ---
 
