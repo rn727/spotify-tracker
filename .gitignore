@@ -1,0 +1,6 @@
+.env
+*.env
+*.dump
+.terraform/
+*.tfstate*
+spotify_data/
