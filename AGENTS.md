@@ -178,7 +178,7 @@ Do not break these without an accepted ADR that changes them.
 - **One image, several commands.** The app image exposes subcommands: `serve` (API), `poll` (fetch new plays and insert them), `import` (load a Spotify data export), `authorize` (one-time OAuth), `migrate` (apply schema migrations). Services in Compose, and later Kubernetes, choose the subcommand.
 - **Poller scheduling is decided in ADR-0004.** Until it is accepted, ask before adding any scheduling code.
 - **Ingestion is idempotent.** Running `poll` or `import` twice must not change row counts. How duplicates are prevented is decided in ADR-0005.
-- **Timestamps are stored in UTC.** Convert to local time only at query or display time. The column type depends on ADR-0002.
+- **Timestamps are stored in UTC.** Convert to local time only at query or display time. The Postgres column type is chosen with the Phase 1 schema.
 - **The API is read-only.** Bulk writes happen only through the `import` and `migrate` commands, never through HTTP endpoints.
 - **Configuration comes from environment variables.** No hardcoded URLs, credentials, or intervals. Every new variable goes in `.env.example` (with a placeholder) and the README's configuration table.
 - **When migrations run is decided in ADR-0007.** Until it is accepted, ask before making migrations run anywhere other than the `migrate` subcommand.
@@ -226,7 +226,6 @@ Ask first, and wait for a clear yes, before:
 ## Out of scope unless the owner asks
 
 - Features beyond top-tracks queries (recommendations, playlists, social features).
-- A specific database or backend before ADR-0002 is accepted.
 - Kubernetes before Phase 10.
 - UI polish or frontend frameworks. See the next section.
 
@@ -280,7 +279,7 @@ docker compose up -d --build
 docker compose logs -f poller
 docker compose run --rm api migrate
 docker compose run --rm api poll
-# Database shell: TBD after ADR-0002
+docker compose exec <postgres-service> psql -U <user> -d <database>   # database shell (ADR-0002)
 ```
 
 ## Definition of done for any PR

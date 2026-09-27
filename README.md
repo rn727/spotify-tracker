@@ -29,7 +29,7 @@ flowchart LR
     spotify[(Spotify Web API)]
     export[/"Spotify data export<br/>(JSON files)"/]
     subgraph vm["Server · Docker Compose"]
-        poller["poll<br/>every ~30 min"] --> db[(Database)]
+        poller["poll<br/>every ~30 min"] --> db[(Postgres)]
         importer["import<br/>one-off"] --> db
         api["serve<br/>API + simple page"] --> db
     end
@@ -43,7 +43,7 @@ flowchart LR
 | **Poller** (`poll`) | Fetches plays newer than the latest one stored and inserts them. Runs on a schedule. Safe to run any number of times. |
 | **Importer** (`import`) | One-time load of historical plays from a Spotify data export. Also idempotent. |
 | **API** (`serve`) | Read-only. Returns top tracks for a time range, plus a health check. |
-| **Database** | The only durable state. Everything else can be rebuilt. |
+| **Database** (Postgres) | The only durable state. Everything else can be rebuilt. |
 
 All components ship as **one container image** with different subcommands.
 
@@ -148,11 +148,11 @@ All settings come from environment variables, loaded from `.env` locally. `.env.
 | `SPOTIFY_REDIRECT_URI` | Yes | `http://127.0.0.1:8888/callback` |
 | `SPOTIFY_REFRESH_TOKEN` | Yes | Written by the `authorize` step. **Secret.** |
 | `SPOTIFY_AUTHORIZED_AT` | Yes | ISO date of authorization, used to warn before the refresh token expires |
-| `DATABASE_URL` | Yes | Database connection string. Format depends on [ADR-0002](docs/adr/). **May contain a secret.** |
+| `DATABASE_URL` | Yes | Postgres connection string, e.g. `postgres://<user>:<password>@<host>:5432/<database>` ([ADR-0002](docs/adr/0002-database.md)). **Contains a secret.** |
 | `POLL_INTERVAL_SECONDS` | No | Seconds between polls. Default `1800` |
 | `TIMEZONE` | No | Used for display, and for time ranges if ADR-0006 chooses calendar-based ranges. Default `America/Los_Angeles` |
 
-Other database variables depend on ADR-0002. If the database needs a password, generate a strong one:
+The Postgres container's own variables (user, password, database name) are added in Phase 2. Generate a strong password:
 
 ```powershell
 # PowerShell
@@ -228,7 +228,7 @@ Spotify's [February 2026 migration guide](https://developer.spotify.com/document
 | Area | Tool | Phase |
 |---|---|---|
 | Language / framework | Go, standard library ([ADR-0001](docs/adr/0001-language-and-framework.md)) | 0 |
-| Database | TBD (ADR-0002) | 0 |
+| Database | Postgres, self-hosted ([ADR-0002](docs/adr/0002-database.md)) | 0 |
 | Containers | Docker, Docker Compose | 2 |
 | Dashboard access | TBD (ADR-0010) | 3 |
 | CI | GitHub Actions, Trivy, Dependabot | 4 |
