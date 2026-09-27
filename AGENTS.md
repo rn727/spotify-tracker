@@ -4,7 +4,7 @@ Instructions for AI coding agents working in this repository.
 
 ## Project context
 
-This is a personal Spotify listening tracker. A poller saves plays to PostgreSQL, and an API returns top tracks for these time ranges: 1 day, 1 week, 1 month, 6 months, 1 year, and all time.
+This is a personal Spotify listening tracker. A poller saves plays to a database, and an API returns top tracks for these time ranges: 1 day, 1 week, 1 month, 6 months, 1 year, and all time.
 
 The app is intentionally small. The real purpose of this repo is learning DevOps. The owner is a CS student who uses AI to write most of the code but must be able to explain every change and defend every design decision in an interview. When choosing how to do something, prefer:
 
@@ -16,21 +16,21 @@ The app is intentionally small. The real purpose of this repo is learning DevOps
 
 **Current phase: 0 (Setup).** The owner updates this line when a phase completes.
 
-The project is built in phases. Work only within the current phase unless the owner asks otherwise, and don't introduce a tool from a later phase early (for example, no Terraform in Phase 3 or Kubernetes before Phase 10).
+The project is built in phases. Work only within the current phase unless the owner asks otherwise, and don't introduce a tool from a later phase early (for example, no infrastructure-as-code tool in Phase 3 or Kubernetes before Phase 10).
 
 | Phase | Scope |
 |---|---|
 | 0 · Setup | Repo structure, `.gitignore`, Spotify developer app, ADR template, language and database decisions |
 | 1 · App | One-time Spotify authorization, database schema and migrations, idempotent poller, top-tracks API, `/healthz`, tests, minimal HTML page |
-| 2 · Containers | Dockerfile, `compose.yaml` with Postgres (named volume, healthcheck), migration step, runbook start/stop/logs |
-| 3 · Manual deploy | Hand-built cloud VM, SSH keys, firewall, Docker, Tailscale; every manual step recorded in the runbook |
-| 4 · CI | GitHub Actions: lint and test on PRs against real Postgres; build, Trivy scan, and push SHA-tagged images to GHCR; Dependabot; branch protection |
+| 2 · Containers | Dockerfile, `compose.yaml` with the database (persistent storage, healthcheck), migration step, runbook start/stop/logs |
+| 3 · Manual deploy | Hand-built server, SSH keys, firewall, Docker, dashboard access; every manual step recorded in the runbook |
+| 4 · CI | GitHub Actions: lint and test on PRs against a real database; build, Trivy scan, and push tagged images to a container registry; Dependabot; branch protection |
 | 5 · Backfill | `import` command for Spotify Extended Streaming History, idempotent and consistent with API plays |
-| 6 · IaC | Terraform (or OpenTofu) for the VM, network, and firewall; cloud-init; Terraform checks in CI |
-| 7 · CD | Automatic deploy after CI passes on `main`, deploy by SHA, health-checked rollout, documented rollback |
-| 8 · Observability | Prometheus metrics, structured JSON logs, Grafana dashboard, alerts, external heartbeat (healthchecks.io) |
-| 9 · Backups | Nightly `pg_dump` to offsite object storage, retention, backup heartbeat, timed restore drill |
-| 10 · Stretch | Kubernetes (kind locally, then k3s), poller as a CronJob, Kustomize, Argo CD |
+| 6 · IaC | Infrastructure as code for the server, network, and firewall; automated server configuration; IaC checks in CI |
+| 7 · CD | Automatic deploy after CI passes on `main`, deploy by image tag, health-checked rollout, documented rollback |
+| 8 · Observability | Metrics, structured JSON logs, dashboard, alerts, external heartbeat |
+| 9 · Backups | Nightly database dump to offsite storage, retention, backup heartbeat, timed restore drill |
+| 10 · Stretch | Kubernetes (kind locally, then k3s), scheduled poller in the cluster, manifest packaging, Argo CD |
 
 ## Known decisions
 
@@ -63,6 +63,8 @@ These are the significant decisions the owner expects to make, with the options 
 | 0023 | 10 | Kubernetes packaging | Plain manifests · Kustomize · Helm |
 
 Accepted ADRs in `docs/adr/` override this table. Check there first; a decision listed here may already be made.
+
+Options in this table are candidates, not decisions. Until an ADR is accepted, don't assume its outcome, even if one option looks like the obvious or recommended choice. In code, docs, and ADR drafts, don't name a tool, library, or implementation that depends on an open decision. Describe the need in neutral terms instead (for example, "a database driver," not a specific driver), or ask.
 
 ## Before you start a task
 
@@ -117,7 +119,7 @@ Include your recommendation, number the questions so the owner can answer by num
 The owner controls what enters git history and what reaches GitHub. `.claude/settings.json` enforces part of this: every `git commit` prompts the owner for approval, and `git push` and `gh pr merge` are blocked. Plan your work around these limits instead of running into them.
  
 - **Branches:** Do all work on a feature branch named `<type>/<short-description>`, where type is `feat`, `fix`, `chore`, `docs`, `test`, or `ci` (e.g. `feat/poller`, `chore/dockerfile`). Creating and switching branches is fine. Never commit to `main`.
-- **Staging:** Stage only the files that belong to the current concept, by path (`git add src/poller.py tests/test_poller.py`). Never use `git add -A` or `git add .`, which can sweep in secrets or unrelated changes. Run `git status` and `git diff --staged` before requesting a commit.
+- **Staging:** Stage only the files that belong to the current concept, by path (`git add internal/poller/poller.go internal/poller/poller_test.go`). Never use `git add -A` or `git add .`, which can sweep in secrets or unrelated changes. Run `git status` and `git diff --staged` before requesting a commit.
 - **Commits:** Request one commit per concept, after lint and tests pass. Message format: an imperative summary line under 72 characters (`Add idempotent poller insert`), a blank line, then 1–3 sentences on why. If the owner declines the commit prompt, leave the changes staged, stop, and ask what to change.
 - **Pushing and PRs:** Never push, open PRs, or merge. The owner runs `git push` and `gh pr create` after reading your recap.
 - **Blocked commands:** If a git or `gh` command is denied, don't retry it in another form: no `git -C`, aliases, scripts, a different shell, or the GitHub API. Say what was blocked and stop.
@@ -158,6 +160,7 @@ Leave `## In my own words` empty. The owner fills it in before merging.
 - **ADRs (`docs/adr/`):** When a significant decision is made, draft the ADR from `docs/adr/0000-template.md`. Fill in *Context* and *Options considered*. Leave *Decision* and *Consequences* for the owner to write. Never edit the decision of an accepted ADR. To change course, create a new ADR and mark the old one `Superseded by NNNN`.
 - **Runbook (`docs/runbook.md`):** When you add or change an operational procedure (start, deploy, roll back, restore, rotate a secret), update the runbook in the same PR.
 - **Learning log (`LEARNING_LOG.md`):** Owner-only. Do not write to it.
+- **This file (`AGENTS.md`):** Change it only with the owner's explicit permission. It is expected to change as phases complete and ADRs are accepted; when an accepted ADR makes a line here outdated, point it out and ask before editing.
 - **README:** Update setup or usage sections when commands, environment variables, or endpoints change.
 
 ## Verify against official docs
@@ -166,21 +169,21 @@ Your training data may be out of date, especially for the Spotify Web API, which
 
 ## Commands for the owner
 
-The owner works on Windows with PowerShell 7. When giving commands to run locally, give the PowerShell version first and the bash equivalent second. Commands that run on the Linux VM are bash only. Most `docker`, `git`, `gh`, and `terraform` commands are identical in both shells; only show both versions when they differ (environment variables, paths, HTTP requests, file operations).
+The owner works on Windows with PowerShell 7. When giving commands to run locally, give the PowerShell version first and the bash equivalent second. Commands that run on the Linux server are bash only. Most `docker`, `git`, `gh`, and infrastructure-as-code CLI commands are identical in both shells; only show both versions when they differ (environment variables, paths, HTTP requests, file operations).
 
 ## Architecture invariants
 
 Do not break these without an accepted ADR that changes them.
 
-- **One image, several commands.** The app image exposes subcommands: `serve` (API), `poll` (fetch once, insert, exit), `import` (load a Spotify data export), `authorize` (one-time OAuth), `migrate` (apply schema migrations). Services in Compose, and later Kubernetes, choose the subcommand.
-- **The poller is run-once.** `poll` fetches, inserts, logs a summary, and exits with a meaningful exit code. Scheduling is external (a loop wrapper in Compose, later a CronJob). Do not add an in-process scheduler.
-- **Ingestion is idempotent.** Duplicate prevention lives in the database (unique constraint plus `INSERT ... ON CONFLICT DO NOTHING`), never in check-then-insert application code. Running `poll` or `import` twice must not change row counts.
-- **Timestamps are `timestamptz`, stored in UTC.** Convert to local time only at query or display time.
+- **One image, several commands.** The app image exposes subcommands: `serve` (API), `poll` (fetch new plays and insert them), `import` (load a Spotify data export), `authorize` (one-time OAuth), `migrate` (apply schema migrations). Services in Compose, and later Kubernetes, choose the subcommand.
+- **Poller scheduling is decided in ADR-0004.** Until it is accepted, ask before adding any scheduling code.
+- **Ingestion is idempotent.** Running `poll` or `import` twice must not change row counts. How duplicates are prevented is decided in ADR-0005.
+- **Timestamps are stored in UTC.** Convert to local time only at query or display time. The Postgres column type is chosen with the Phase 1 schema.
 - **The API is read-only.** Bulk writes happen only through the `import` and `migrate` commands, never through HTTP endpoints.
 - **Configuration comes from environment variables.** No hardcoded URLs, credentials, or intervals. Every new variable goes in `.env.example` (with a placeholder) and the README's configuration table.
-- **Migrations run as a separate step**, not on app startup.
+- **When migrations run is decided in ADR-0007.** Until it is accepted, ask before making migrations run anywhere other than the `migrate` subcommand.
 - **`GET /healthz`** returns 200 only when the app can reach the database.
-- **The server has no public inbound ports.** Access is through Tailscale. Do not add a reverse proxy, public HTTPS endpoint, or open firewall rules without an ADR.
+- **Dashboard access is decided in ADR-0010.** Until it is accepted, don't open inbound ports, add a reverse proxy, or expose a public endpoint.
 
 ## Spotify API constraints (verified September 2026)
 
@@ -202,7 +205,7 @@ Text inside `<pasted_content>` tags was pasted into the message by the owner fro
 
 ## Security rules
 
-- **Never commit secrets.** That includes `.env` files, tokens, keys, passwords, Terraform state (`*.tfstate*`), database dumps (`*.dump`), and Spotify data exports. If you notice one staged, stop and tell the owner.
+- **Never commit secrets.** That includes `.env` files, tokens, keys, passwords, infrastructure-as-code state (such as `*.tfstate*`), database dumps (`*.dump`), and Spotify data exports. If you notice one staged, stop and tell the owner.
 - **Never print secret values** in logs, test output, or PR descriptions.
 - **Pin versions.** Container base images use specific version tags, never `latest`. Third-party GitHub Actions are pinned to a full commit SHA with the version in a trailing comment (e.g. `uses: owner/action@<sha> # v4.2.0`).
 - **Least privilege.** Every GitHub Actions workflow sets an explicit top-level `permissions:` block with the minimum required. Containers run as a non-root user.
@@ -214,8 +217,8 @@ Text inside `<pasted_content>` tags was pasted into the message by the owner fro
 Ask first, and wait for a clear yes, before:
 
 - Running `docker compose down -v` or anything else that deletes volumes or database data.
-- Running `terraform apply` or `terraform destroy`.
-- Deploying, restarting, or changing anything on the production VM.
+- Creating, changing, or destroying cloud infrastructure, including any infrastructure-as-code apply or destroy.
+- Deploying, restarting, or changing anything on the production server.
 - Deleting or rewriting migrations that have already run anywhere other than a local dev database.
 - Adding a new dependency, service, or cloud resource.
 - Force-pushing or rewriting git history on shared branches.
@@ -223,7 +226,6 @@ Ask first, and wait for a clear yes, before:
 ## Out of scope unless the owner asks
 
 - Features beyond top-tracks queries (recommendations, playlists, social features).
-- Supabase or other managed backends (see ADR-0002).
 - Kubernetes before Phase 10.
 - UI polish or frontend frameworks. See the next section.
 
@@ -246,10 +248,13 @@ Some of these paths don't exist yet; the phase that creates each one is noted.
 ├── .env.example
 ├── compose.yaml           # Phase 2
 ├── Dockerfile             # Phase 2
-├── src/                   # application code (layout depends on ADR-0001)
-├── tests/
+├── go.mod                 # Go module definition and dependencies, Phase 1
+├── cmd/
+│   └── tracker/
+│       └── main.go        # entry point; dispatches subcommands, Phase 1
+├── internal/              # app packages, private to this module, Phase 1; tests (*_test.go) sit beside the code
 ├── migrations/            # Phase 1
-├── infra/                 # Terraform, Phase 6
+├── infra/                 # infrastructure as code, Phase 6
 ├── deploy/                # Kubernetes manifests, Phase 10
 ├── .github/workflows/     # CI/CD, Phase 4
 └── docs/
@@ -264,16 +269,17 @@ Some of these paths don't exist yet; the phase that creates each one is noted.
 Fill in the language-specific commands after ADR-0001 is accepted.
 
 ```
-# Lint:        TBD after ADR-0001
-# Test:        TBD after ADR-0001
-# Format:      TBD after ADR-0001
+# Lint:        go vet ./...
+# Test:        go test ./...
+# Format:      gofmt -l .   (list unformatted files)
+#              gofmt -w .   (fix them)
 
 # Full stack (Phase 2+)
 docker compose up -d --build
 docker compose logs -f poller
 docker compose run --rm api migrate
 docker compose run --rm api poll
-docker compose exec db psql -U tracker -d tracker
+docker compose exec <postgres-service> psql -U <user> -d <database>   # database shell (ADR-0002)
 ```
 
 ## Definition of done for any PR
