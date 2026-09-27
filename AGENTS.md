@@ -112,6 +112,16 @@ Collect every open question for the task first, then ask them all in one message
 
 Include your recommendation, number the questions so the owner can answer by number, and then stop. If a new question comes up partway through, stop and ask it rather than guessing.
 
+## Git workflow
+ 
+The owner controls what enters git history and what reaches GitHub. `.claude/settings.json` enforces part of this: every `git commit` prompts the owner for approval, and `git push` and `gh pr merge` are blocked. Plan your work around these limits instead of running into them.
+ 
+- **Branches:** Do all work on a feature branch named `<type>/<short-description>`, where type is `feat`, `fix`, `chore`, `docs`, `test`, or `ci` (e.g. `feat/poller`, `chore/dockerfile`). Creating and switching branches is fine. Never commit to `main`.
+- **Staging:** Stage only the files that belong to the current concept, by path (`git add src/poller.py tests/test_poller.py`). Never use `git add -A` or `git add .`, which can sweep in secrets or unrelated changes. Run `git status` and `git diff --staged` before requesting a commit.
+- **Commits:** Request one commit per concept, after lint and tests pass. Message format: an imperative summary line under 72 characters (`Add idempotent poller insert`), a blank line, then 1–3 sentences on why. If the owner declines the commit prompt, leave the changes staged, stop, and ask what to change.
+- **Pushing and PRs:** Never push, open PRs, or merge. The owner runs `git push` and `gh pr create` after reading your recap.
+- **Blocked commands:** If a git or `gh` command is denied, don't retry it in another form: no `git -C`, aliases, scripts, a different shell, or the GitHub API. Say what was blocked and stop.
+
 ## Pull requests
 
 **One concept per PR.** For example, "add Dockerfile" and "add healthcheck" are separate PRs. Small diffs are reviewable diffs. Don't bundle unrelated cleanups; mention them in the recap instead.
